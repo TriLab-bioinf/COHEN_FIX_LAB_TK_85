@@ -1,0 +1,5 @@
+for i in $(ls ./BAM/AY[34]?_S*_L001.sorted.dedup.bam); do
+echo $i
+t=$(echo $i | sed 's:./BAM/::'| cut -f 1 -d '_')
+igvtools count -z 7 ${i} ${t}.tdf sacCer3
+done
