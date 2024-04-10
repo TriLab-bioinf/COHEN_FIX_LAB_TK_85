@@ -1,12 +1,25 @@
-#!/Users/lorenziha/miniconda3/envs/TK_85/bin/perl
+#!/usr/bin/perl
 use strict;
 
-my $usage = "$0 -g <annot gtf file> -d <samtools depth file> -w <window size [200]> -n <number of samples [12]>\n\n";
+my $usage = "$0 -g <annot gtf file> -d <samtools depth file> -w <window size [200]> -n <number of samples [12]> -D <read-depth cutoff [1]>\n\n";
 my %arg = @ARGV;
 die $usage unless $arg{-g} && $arg{-d};
 
 my $NUM_SAMPLES=$arg{-n} || 12;
 my $WINDOW = $arg{-w} || 200;
+my $DEPTH_CUTOFF = $arg{-D} || 1;
+
+#                 <----------- direction of read-depth reading
+#   key = chr + e5
+#   new_coord    e5  gene_1      e3 
+#       | WINDOW |-------------->|     
+# -------------------------------------------------------------------------------------------- chromosome
+#                                      |<-----------| WINDOW |             
+#                                      e5  gene_2   e3       new_coord
+#                                                   key = chr + e3
+#
+#  direction of read-depth reading  ---------->
+
 
 # Upload gene coordinates from annotation
 open (my $gtf, "<$arg{-g}") || die "ERROR, I cannot open $arg{-g}: $!\n\n";
@@ -21,6 +34,7 @@ while(<$gtf>){
     # Extranct gene_id info from $comm
     my ($gene_id, $gene_name, $biotype) = &parse_comm($comm);
 
+    
     # Only keep protein_coding genes
     next unless $biotype eq "protein_coding";
     
@@ -33,7 +47,16 @@ while(<$gtf>){
         my $new_coord = $e3 + $WINDOW;
         my $key = "$chr:$e3";
         $genes{$key} = [$gene_id, $e3, $new_coord, $strand];
+
+        # Debug line
+        #if($gene_id eq "YLR406C-A"){
+        #print STDERR "$gene_id, $gene_name, $chr, $feat, $e5, $e3, $strand, new coord = $new_coord, e3 = $e3\n";
+        #}
+
     } else {next}
+
+    
+
 }
 close $gtf;
 
@@ -55,13 +78,15 @@ while(<$depth>){
         my $end_key = $genes{$start_key}->[2];
         #print "$gene_id, $strand, $end_key\n";
         my @upstream_region;
+
+        # Load depth for region upstream gene
         while($pos < $end_key){
             ($chr, $pos, @val) = split(m/\t/,  <$depth>);
             push @upstream_region, "$chr\t$pos\t". join("\t", @val);
 
         }
         if ($strand eq "+"){
-            # Reverse upstream_region array
+            # Reverse upstream_region array so we track depth starting from the 5'end of the CDS
             @upstream_region = reverse(@upstream_region);
         }
 
@@ -93,8 +118,8 @@ sub count_utr_length {
         #print "flag=".join("-",@flag)."\n";
         my $p = 0;
         foreach my $sample (@row){
-            #print "sample = $sample\n";
-            $flag[$p] = 0 if $sample == 0;
+            # Set flag = 0 if read-depth falls below depth cutoff 
+            $flag[$p] = 0 if $sample < $DEPTH_CUTOFF;
             $len[$p]++ if ($flag[$p] == 1);
             $p++;
         }
